@@ -8,7 +8,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 5MB
 export default function Page() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
   const [trialExpired, setTrialExpired] = useState(false);
   const [response, setResponse] = useState<{ feedback: string; keywords: string }>({
     feedback: '',
@@ -72,7 +72,7 @@ export default function Page() {
         feedback: data.feedback,
         keywords: data.keywords
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Something went wrong. Please try again.', error);
     } finally {
       setLoading(false);

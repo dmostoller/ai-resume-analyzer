@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
         resumeText = docxData.value;
       }
     } catch (error) {
-      return NextResponse.json({ error: 'Failed to parse document' }, { status: 400 });
+      return NextResponse.json({ error: error }, { status: 400 });
     }
 
     try {
@@ -123,10 +123,10 @@ export async function POST(request: NextRequest) {
         feedback: feedbackResponse.choices[0].message.content,
         keywords: keywordResponse.choices[0].message.content
       });
-    } catch (error: any) {
-      return NextResponse.json({ error: 'AI analysis failed. Please try again.' }, { status: 503 });
+    } catch (error) {
+      return NextResponse.json({ error: error }, { status: 503 });
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error('Server error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
