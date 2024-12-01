@@ -94,7 +94,13 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const [feedbackResponse, keywordResponse] = await Promise.all([
+      const [
+        feedbackResponse,
+        jobRequirementsResponse,
+        atsKeywordsResponse,
+        resumeKeywordsResponse,
+        resumeRequirementsResponse // New
+      ] = await Promise.all([
         openai.chat.completions.create({
           model: 'gpt-3.5-turbo',
           messages: [
@@ -112,16 +118,106 @@ export async function POST(request: NextRequest) {
           messages: [
             {
               role: 'user',
-              content: `Extract key requirements from:\n${jobDescription || 'No job description provided.'}`
+              content: `Extract key requirements from this job description as a numbered list:\n${
+                jobDescription || 'No job description provided.'
+              }`
+            }
+          ],
+          max_tokens: 100
+        }),
+        openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'user',
+              content: `Extract important ATS keywords from this job description, focusing on skills, technologies, qualifications, and certifications. Format as a comma-separated list:\n${jobDescription || 'No job description provided.'}`
+            }
+          ],
+          max_tokens: 100
+        }),
+        openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'user',
+              content: `Extract all skills, technologies, qualifications, and certifications from this resume as a comma-separated list:\n${resumeText}`
+            }
+          ],
+          max_tokens: 100
+        }),
+        openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'user',
+              content: `Extract key qualifications and requirements from this resume as a numbered list:\n${resumeText}`
             }
           ],
           max_tokens: 100
         })
       ]);
+      const resumeKeywordsContent = resumeKeywordsResponse.choices[0]?.message?.content || '';
+      const resumeKeywords = resumeKeywordsContent.split(',').map((k) => k.trim().toLowerCase());
+      const atsKeywordsContent = atsKeywordsResponse.choices[0]?.message?.content || '';
+      const jobKeywords = atsKeywordsContent.split(',').map((k) => k.trim().toLowerCase());
+
+      const matchedKeywords = jobKeywords.filter((keyword) =>
+        resumeKeywords.some((resumeKeyword) => resumeKeyword.includes(keyword))
+      );
+      const missingKeywords = jobKeywords.filter(
+        (keyword) => !resumeKeywords.some((resumeKeyword) => resumeKeyword.includes(keyword))
+      );
+      const jobRequirementsContent = jobRequirementsResponse.choices[0]?.message?.content || '';
+      const resumeRequirementsContent = resumeRequirementsResponse.choices[0]?.message?.content || '';
+
+      const jobRequirements = jobRequirementsContent
+        .split(/\d+\.\s+/)
+        .filter(Boolean)
+        .map((req) => req.trim().toLowerCase());
+
+      const resumeRequirements = resumeRequirementsContent
+        .split(/\d+\.\s+/)
+        .filter(Boolean)
+        .map((req) => req.trim().toLowerCase());
+
+      // Match requirements using similarity comparison
+      const matchedRequirements = jobRequirements.filter((jobReq) =>
+        resumeRequirements.some((resumeReq) => {
+          // Check if any resume requirement contains substantial parts of the job requirement
+          const jobKeywords = jobReq.split(' ');
+          const matchCount = jobKeywords.filter((keyword) =>
+            resumeReq.includes(keyword.toLowerCase())
+          ).length;
+          return matchCount / jobKeywords.length > 0.5; // Match if more than 50% of words match
+        })
+      );
+
+      const missingRequirements = jobRequirements.filter((jobReq) => !matchedRequirements.includes(jobReq));
+
+      const requirementsScore =
+        jobRequirements.length > 0
+          ? Math.round((matchedRequirements.length / jobRequirements.length) * 100)
+          : 100;
+
+      const keywordsScore =
+        jobKeywords.length > 0 ? Math.round((matchedKeywords.length / jobKeywords.length) * 100) : 100;
+
+      const overallScore = Math.round((requirementsScore + keywordsScore) / 2);
 
       return NextResponse.json({
         feedback: feedbackResponse.choices[0].message.content,
-        keywords: keywordResponse.choices[0].message.content
+        requirements: {
+          matched: matchedRequirements,
+          missing: missingRequirements,
+          resumeRequirements: resumeRequirements,
+          score: requirementsScore // Add this
+        },
+        atsKeywords: {
+          matched: matchedKeywords,
+          missing: missingKeywords,
+          score: keywordsScore // Add this
+        },
+        overallScore // Add this
       });
     } catch (error) {
       return NextResponse.json({ error: error }, { status: 503 });
