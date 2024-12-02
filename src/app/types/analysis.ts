@@ -14,7 +14,38 @@ export interface ATSKeywords {
 
 export interface AnalysisResponse {
   feedback: string;
-  requirements: Requirements;
-  atsKeywords: ATSKeywords;
+  requirements: {
+    matched: string[];
+    missing: string[];
+    resumeRequirements: string[];
+    score: number;
+  };
+  atsKeywords: {
+    matched: string[];
+    missing: string[];
+    score: number;
+  };
   overallScore: number;
+  jobDescription?: string;
+  fileName?: string;
+  createdAt?: Date;
+}
+
+export interface ScanData {
+  feedback: string;
+  requirements: {
+    matched: string[];
+    missing: string[];
+    resumeRequirements: string[];
+    score: number;
+  };
+  atsKeywords: {
+    matched: string[];
+    missing: string[];
+    score: number;
+  };
+  overallScore: number;
+  jobDescription?: string;
+  fileName?: string;
+  createdAt?: string;
 }

@@ -1,15 +1,36 @@
 'use client';
 
-import { useState } from 'react';
-import { signIn, signOut, useSession } from 'next-auth/react';
+import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import ReactMarkdown from 'react-markdown';
 import { toast } from 'react-hot-toast';
 import { SubscriptionModal } from '@/components/SubscriptionModal';
 import { SubscriptionSuccessModal } from '@/components/SubscriptionSuccessModal';
 import { SubscriptionManager } from '@/components/SubscriptionManager';
 import PricingPlans from './PricingPlans';
+import { AuthButton } from '@/components/AuthButton';
+import { signIn } from 'next-auth/react';
+import { HistoryModal } from '@/components/HistoryModal';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+type SubscriptionPlan = {
+  tier: 'free' | 'basic' | 'pro';
+  name: string;
+  limit: number;
+  price: number;
+};
+
+type SubscriptionDetails = {
+  isSubscribed: boolean;
+  subscription: {
+    status: 'active' | 'cancelled' | 'expired';
+    currentPeriodEnd?: string;
+    plan?: SubscriptionPlan;
+  };
+  usage: number;
+  limit: number;
+};
 
 type AnalysisResponse = {
   feedback: string;
@@ -27,67 +48,15 @@ type AnalysisResponse = {
   overallScore: number;
 } | null;
 
-const AuthButton = () => {
-  const { data: session } = useSession();
-
-  if (session) {
-    return (
-      <button
-        onClick={() => signOut()}
-        className=" text-gray-600 hover:text-gray-800 transition-colors"
-        aria-label="Logout"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-8 w-8"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-          />
-        </svg>
-      </button>
-    );
-  }
-
-  return (
-    <button
-      onClick={() => signIn()}
-      className="text-gray-600 hover:text-gray-800 transition-colors"
-      aria-label="Login"
-    >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className="h-8 w-8"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"
-        />
-      </svg>
-    </button>
-  );
-};
-
 const PricingModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4">
+    <div className="fixed inset-0 z-40 overflow-y-auto">
+      <div className="flex items-center justify-center min-h-screen p-4">
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={onClose}></div>
-        <div className="relative bg-white rounded-lg max-w-6xl w-full mx-auto p-6">
-          <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-500">
+        <div className="relative bg-[var(--card-background)] rounded-lg max-w-6xl w-full mx-auto">
+          <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-500 z-50">
             <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -109,6 +78,47 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
   const [showSuccessModal, setShowSuccessModal] = useState(searchParams.success === 'true');
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [jobDescription, setJobDescription] = useState<string>('');
+  const [subscription, setSubscription] = useState<SubscriptionDetails | null>(null);
+  const [lastScanScore, setLastScanScore] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+
+  const fetchUserData = async () => {
+    if (!session?.user) {
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      // Fetch subscription data
+      const subResponse = await fetch('/api/subscription');
+      const subData = await subResponse.json();
+
+      // Fetch last scan data
+      const scanResponse = await fetch('/api/scans/latest');
+      const scanData = await scanResponse.json();
+
+      setSubscription({
+        isSubscribed: subData.isSubscribed,
+        subscription: subData.subscription,
+        usage: subData.usage,
+        limit: subData.subscription?.plan?.limit || 3
+      });
+
+      if (scanData?.overallScore) {
+        setLastScanScore(scanData.overallScore);
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+      toast.error('Failed to load user data');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUserData();
+  }, [session]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -141,6 +151,11 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
       return;
     }
 
+    if (!session?.user) {
+      toast.error('Please sign in to continue');
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
     formData.append('jobDescription', jobDescription);
@@ -148,37 +163,24 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
     try {
       setLoading(true);
 
-      if (!session?.user) {
-        toast.error('Please sign in to continue');
+      // Check subscription with error handling
+      const subStatus = await fetch('/api/subscription');
+
+      if (!subStatus.ok) {
+        console.error('Subscription check failed:', await subStatus.text());
+        toast.error('Failed to verify subscription status');
         return;
       }
 
-      // Check subscription with error handling
-      try {
-        const subStatus = await fetch('/api/subscription');
+      const subData = await subStatus.json();
 
-        if (!subStatus.ok) {
-          console.error('Subscription check failed:', await subStatus.text());
-          toast.error('Failed to verify subscription status');
-          return;
-        }
-
-        const subData = await subStatus.json();
-        console.log('Subscription status:', subData); // Debug log
-
-        if (!subData.isSubscribed) {
-          setTrialExpired(true);
+      if (subData.usage >= subData.subscription.limit) {
+        if (subData.subscription.tier === 'free') {
+          // toast.error('Free tier limit reached. Please upgrade for more scans.');
           setShowSubscriptionModal(true);
-          return;
-        }
-
-        if (subData.usage >= subData.limit) {
+        } else {
           toast.error('Monthly scan limit reached. Please upgrade your plan.');
-          return;
         }
-      } catch (error) {
-        console.error('Subscription check error:', error);
-        toast.error('Failed to verify subscription');
         return;
       }
 
@@ -217,6 +219,26 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
         console.error('Error incrementing usage:', error);
       }
 
+      // Save scan to history
+      try {
+        await fetch('/api/scans/save', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            feedback: data.feedback,
+            requirements: data.requirements,
+            atsKeywords: data.atsKeywords,
+            overallScore: data.overallScore,
+            jobDescription: jobDescription,
+            fileName: file.name
+          })
+        });
+      } catch (error) {
+        console.error('Error saving scan history:', error);
+      }
+
       setResponse({
         feedback: data.feedback,
         requirements: {
@@ -239,7 +261,7 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
+    <div className="min-h-screen bg-[var(--background)] p-6">
       <div className="flex justify-between items-center mb-4">
         <button
           onClick={() => setShowPricingModal(true)}
@@ -249,25 +271,106 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
         </button>
         <div className="flex items-center">
           <AuthButton />
-          <SubscriptionManager />
+          {session && <SubscriptionManager />}
         </div>
       </div>
       <PricingModal isOpen={showPricingModal} onClose={() => setShowPricingModal(false)} />
-      <header className="mb-8 text-center">
+
+      <header className="bg-gradient-to-r from-indigo-900 via-purple-900 to-blue-900 text-white py-16 px-8">
+        <div className="max-w-7xl mx-auto">
+          {session?.user ? (
+            <div className="space-y-8">
+              {/* Personalized Greeting */}
+              <div className="text-center">
+                <h1 className="text-4xl sm:text-5xl font-extrabold leading-tight mb-4">
+                  Welcome back, {session.user.name?.split(' ')[0]}! 👋
+                </h1>
+                <p className="text-lg sm:text-xl text-blue-200 font-medium">
+                  Let's optimize your next resume
+                </p>
+              </div>
+
+              {/* Quick Stats */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-8">
+                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6">
+                  <p className="text-blue-200 text-sm">Monthly Scans Used</p>
+                  <p className="text-3xl font-bold">
+                    {subscription?.usage || 0}/{subscription?.limit || 3}
+                  </p>
+                </div>
+                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6">
+                  <p className="text-blue-200 text-sm">Latest Score</p>
+                  <p className="text-3xl font-bold">{lastScanScore || '--'}</p>
+                </div>
+                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6">
+                  <p className="text-blue-200 text-sm">Plan</p>
+                  <p className="text-3xl font-bold">{subscription?.plan || 'Free'}</p>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
+                <button
+                  onClick={() => document.getElementById('file-upload')?.click()}
+                  className="inline-flex items-center px-6 py-4 text-lg font-semibold rounded-full shadow-lg 
+                    bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 
+                    focus:ring-4 focus:ring-indigo-400 w-full sm:w-auto justify-center"
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  New Resume Scan
+                </button>
+
+                <button
+                  onClick={() => setShowHistoryModal(true)}
+                  className="inline-flex items-center px-6 py-4 text-lg font-semibold rounded-full
+                bg-white/20 hover:bg-white/30 transition-colors w-full sm:w-auto justify-center"
+                >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                    />
+                  </svg>
+                  View History
+                </button>
+              </div>
+            </div>
+          ) : (
+            // Existing non-logged-in hero content
+            <div className="text-center">
+              <h1 className="text-4xl sm:text-5xl font-extrabold leading-tight mb-4">
+                Analyze Your Resume with <span className="text-blue-400">AI-Powered Insights</span>
+              </h1>
+              <p className="text-lg sm:text-xl font-medium mb-8">
+                Optimize your resume, get ATS-ready, and land your dream job faster.
+              </p>
+              <button
+                onClick={() => signIn()}
+                className="inline-flex items-center px-6 py-4 text-lg font-semibold rounded-full shadow-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 focus:ring-4 focus:ring-indigo-400"
+              >
+                Get Started
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+      {/* <header className="mb-8 text-center">
         <h1 className="text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">
           AI Resume Analyzer
         </h1>
-      </header>
-      {trialExpired && (
-        <SubscriptionModal
-          isOpen={showSubscriptionModal}
-          onClose={() => setShowSubscriptionModal(false)}
-          onUpgrade={() => {
-            setShowSubscriptionModal(false);
-            setShowPricingModal(true);
-          }}
-        />
-      )}
+      </header> */}
+      <SubscriptionModal
+        isOpen={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+        onUpgrade={() => {
+          setShowSubscriptionModal(false);
+          setShowPricingModal(true);
+        }}
+      />
       {showSuccessModal && (
         <SubscriptionSuccessModal
           onClose={() => {
@@ -276,6 +379,38 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
           }}
         />
       )}
+
+      <section className="py-12 bg-[var(--background)]">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+          {[
+            {
+              title: 'ATS Optimization',
+              icon: '🚀',
+              description: 'Get suggestions to optimize your resume for ATS systems.'
+            },
+            {
+              title: 'Keyword Match Analysis',
+              icon: '🔑',
+              description: 'See which keywords your resume is missing.'
+            },
+            {
+              title: 'Tailored Feedback',
+              icon: '📋',
+              description: 'Receive actionable insights for job applications.'
+            }
+          ].map((feature, idx) => (
+            <div
+              key={idx}
+              className="bg-[var(--card-background)] p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow"
+            >
+              <div className="text-3xl mb-4">{feature.icon}</div>
+              <h3 className="text-xl font-semibold text-[var(--text-primary)] mb-2">{feature.title}</h3>
+              <p className="text-[var(--text-secondary)]">{feature.description}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {!trialExpired && (
         <>
           <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -283,10 +418,13 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
             <div className="lg:col-span-1">
               <form
                 onSubmit={handleUpload}
-                className="bg-white backdrop-blur-sm bg-opacity-90 shadow-md rounded-xl p-6 space-y-6"
+                className="bg-[var(--card-background)] border border-[var(--card-border)] backdrop-blur-sm bg-opacity-90 shadow-md rounded-xl p-6 space-y-6"
               >
                 <div>
-                  <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label
+                    htmlFor="file-upload"
+                    className="block text-sm font-medium text-[var(--text-secondary)] mb-2"
+                  >
                     Upload Resume
                   </label>
                   <input
@@ -294,17 +432,22 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
                     type="file"
                     accept=".pdf,.docx"
                     onChange={handleFileChange}
-                    className="block w-full text-sm text-slate-500
+                    className="block w-full text-sm text-[var(--text-secondary)]
                     file:mr-4 file:py-2 file:px-4
                     file:rounded-full file:border-0
                     file:text-sm file:font-semibold
-                    file:bg-blue-50 file:text-blue-600
-                    hover:file:bg-blue-100
-                    cursor-pointer"
+                    file:bg-blue-50 dark:file:bg-blue-950
+                    file:text-blue-600 dark:file:text-blue-400
+                    hover:file:bg-blue-100 dark:hover:file:bg-blue-900
+                    cursor-pointer
+                    focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
                   />
                 </div>
                 <div>
-                  <label htmlFor="jobDescription" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label
+                    htmlFor="jobDescription"
+                    className="block text-sm font-medium text-[var(--text-secondary)] mb-2"
+                  >
                     Job Description (Optional)
                   </label>
                   <textarea
@@ -313,11 +456,11 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
                     placeholder="Paste job description here..."
                     value={jobDescription}
                     onChange={(e) => setJobDescription(e.target.value)}
-                    className="w-full p-3 text-sm text-gray-700 bg-gray-100 rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
+                    className="w-full p-3 text-sm text-[var(--text-secondary)] bg-[var(--gray-100)] rounded-lg focus:ring focus:ring-blue-500 focus:outline-none"
                   ></textarea>
                 </div>
                 {file && (
-                  <div className="flex items-center justify-between text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
+                  <div className="flex items-center justify-between text-sm text-[var(--text-secondary)] bg-[var(--gray-50)] p-3 rounded-lg">
                     <span>
                       {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
                     </span>
@@ -375,8 +518,10 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
               {response && (
                 <>
                   {/* Requirements Analysis */}
-                  <div className="bg-white backdrop-blur-sm bg-opacity-90 shadow-md rounded-xl p-6">
-                    <h2 className="text-2xl font-bold text-gray-800 mb-4">Requirements Analysis</h2>
+                  <div className="bg-[var(--card-background)] backdrop-blur-sm bg-opacity-90 shadow-md rounded-xl p-6 border border-[var(--card-border)]">
+                    <h2 className="text-2xl font-bold text-[var(--text-primary)] mb-4">
+                      Requirements Analysis
+                    </h2>
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
                       <div className="flex items-center gap-4">
                         <div className="relative w-24 h-24">
@@ -401,9 +546,9 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
                             <text
                               x="18"
                               y="20.35"
-                              className="score-text"
+                              className="score-text text-[var(--text-primary)]"
                               textAnchor="middle"
-                              fill="#444"
+                              fill="currentColor"
                               fontSize="8"
                             >
                               {response.overallScore}%
@@ -411,13 +556,18 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
                           </svg>
                         </div>
                         <div>
-                          <p className="text-lg text-gray-700">Overall Score</p>
-                          <p className="text-2xl font-semibold text-gray-900">{response.overallScore}%</p>
+                          <p className="text-lg text-[var(--text-secondary)]">Overall Score</p>
+                          <p
+                            className="text-2xl font-semibold"
+                            style={{ color: `hsl(${response.overallScore}, 70%, 50%)` }}
+                          >
+                            {response.overallScore}%
+                          </p>
                         </div>
                       </div>
                       <div className="flex space-x-8 mt-4 md:mt-0">
                         <div>
-                          <p className="text-sm text-gray-600">Requirements Match:</p>
+                          <p className="text-sm text-[var(--text-secondary)]">Requirements Match:</p>
                           <p
                             className="text-lg font-semibold"
                             style={{ color: `hsl(${response.requirements.score}, 70%, 50%)` }}
@@ -426,7 +576,7 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
                           </p>
                         </div>
                         <div>
-                          <p className="text-sm text-gray-600">Keywords Match:</p>
+                          <p className="text-sm text-[var(--text-secondary)]">Keywords Match:</p>
                           <p
                             className="text-lg font-semibold"
                             style={{ color: `hsl(${response.atsKeywords.score}, 70%, 50%)` }}
@@ -447,7 +597,7 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
                               (req) => !req.toLowerCase().includes('key qualifications and requirements:')
                             )
                             .map((req, index) => (
-                              <li key={index} className="text-gray-700">
+                              <li key={index} className="text-[var(--text-secondary)]">
                                 {req}
                               </li>
                             ))}
@@ -461,7 +611,7 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
                         <h3 className="text-xl font-semibold text-green-600 mb-3">Requirements Met</h3>
                         <ul className="list-disc list-inside space-y-2">
                           {response.requirements.matched.map((req, index) => (
-                            <li key={index} className="flex items-center text-gray-700">
+                            <li key={index} className="flex items-center text-[var(--text-secondary)]">
                               <span className="text-green-500 mr-2">✓</span> {req}
                             </li>
                           ))}
@@ -475,7 +625,7 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
                         <h3 className="text-xl font-semibold text-red-600 mb-3">Missing Requirements</h3>
                         <ul className="list-disc list-inside space-y-2">
                           {response.requirements.missing.map((req, index) => (
-                            <li key={index} className="flex items-center text-gray-700">
+                            <li key={index} className="flex items-center text-[var(--text-secondary)]">
                               <span className="text-red-500 mr-2">✗</span> {req}
                             </li>
                           ))}
@@ -486,8 +636,10 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
 
                   {/* ATS Keywords Analysis */}
                   {response.atsKeywords && (
-                    <div className="bg-white backdrop-blur-sm bg-opacity-90 shadow-md rounded-xl p-6">
-                      <h2 className="text-2xl font-bold text-gray-800 mb-4">ATS Keywords Analysis</h2>
+                    <div className="bg-[var(--card-background)] backdrop-blur-sm bg-opacity-90 shadow-md rounded-xl p-6">
+                      <h2 className="text-2xl font-bold text-[var(--text-primary)] mb-4">
+                        ATS Keywords Analysis
+                      </h2>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         {/* Left Column */}
                         <div className="md:col-span-1">
@@ -526,23 +678,27 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
 
               {response && response.feedback ? (
                 // Analysis Feedback
-                <div className="bg-white backdrop-blur-sm bg-opacity-90 shadow-md rounded-xl p-6">
-                  <h2 className="text-2xl font-bold text-gray-800 mb-4">Resume Feedback</h2>
+                <div className="bg-[var(--card-background)] border border-[var(--card-border)] backdrop-blur-sm bg-opacity-90 shadow-md rounded-xl p-6">
+                  <h2 className="text-2xl font-bold text-[var(--text-primary)] mb-4">Resume Feedback</h2>
                   <div className="prose prose-sm prose-blue">
                     <ReactMarkdown
                       components={{
                         h1: ({ children }) => <h1 className="text-3xl font-bold mb-4">{children}</h1>,
                         h2: ({ children }) => (
-                          <h2 className="text-2xl font-bold text-gray-700 mt-6 mb-2">{children}</h2>
+                          <h2 className="text-2xl font-bold text-[var(--text-secondary)] mt-6 mb-2">
+                            {children}
+                          </h2>
                         ),
                         h3: ({ children }) => (
-                          <h3 className="text-lg font-semibold text-gray-600 mt-4 mb-2">{children}</h3>
+                          <h3 className="text-lg font-semibold text-[var(--text-secondary)] mt-4 mb-2">
+                            {children}
+                          </h3>
                         ),
-                        p: ({ children }) => <p className="text-gray-700 mb-3">{children}</p>,
+                        p: ({ children }) => <p className="text-[var(--text-secondary)] mb-3">{children}</p>,
                         ul: ({ children }) => <ul className="list-disc list-inside mb-3">{children}</ul>,
                         li: ({ children }) => <li className="mb-2">{children}</li>,
                         strong: ({ children }) => (
-                          <strong className="font-bold text-gray-900">{children}</strong>
+                          <strong className="font-bold text-[var(--text-primary)]">{children}</strong>
                         )
                       }}
                     >
@@ -552,12 +708,12 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
                 </div>
               ) : (
                 <>
-                  <div className="bg-white backdrop-blur-sm bg-opacity-90 shadow-md rounded-xl p-6">
-                    <h2 className="text-2xl font-bold text-gray-800 mb-4">How It Works</h2>
-                    <div className="space-y-6">
+                  <div className="bg-[var(--card-background)] backdrop-blur-sm bg-opacity-90 shadow-md rounded-xl p-6">
+                    <h2 className="text-2xl font-bold text-[var(--text-primary)] mb-4">How It Works</h2>
+                    <div className="space-y-5">
                       <div>
                         <h3 className="text-xl font-semibold text-blue-600 mb-2">1. Upload Your Resume</h3>
-                        <p className="text-gray-700">
+                        <p className="text-[var(--text-secondary)]">
                           Upload your resume in PDF or DOCX format. Maximum file size is 10MB.
                         </p>
                       </div>
@@ -565,16 +721,16 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
                         <h3 className="text-xl font-semibold text-blue-600 mb-2">
                           2. Add Job Description (Optional)
                         </h3>
-                        <p className="text-gray-700">
+                        <p className="text-[var(--text-secondary)]">
                           Paste the job description to receive tailored feedback and match analysis.
                         </p>
                       </div>
                       <div>
                         <h3 className="text-xl font-semibold text-blue-600 mb-2">3. Get Instant Analysis</h3>
-                        <p className="text-gray-700">
+                        <p className="text-[var(--text-secondary)]">
                           Our AI will analyze your resume and provide detailed feedback on:
                         </p>
-                        <ul className="list-disc list-inside mt-2 text-gray-700 space-y-1">
+                        <ul className="list-disc list-inside mt-2 text-[var(--text-secondary)] space-y-1">
                           <li>Content and formatting improvements</li>
                           <li>Key skills and qualifications</li>
                           <li>ATS optimization suggestions</li>
@@ -589,6 +745,7 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
           </div>
         </>
       )}
+      <HistoryModal isOpen={showHistoryModal} onClose={() => setShowHistoryModal(false)} />
     </div>
   );
 }

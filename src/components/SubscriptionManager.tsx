@@ -69,10 +69,10 @@ export function SubscriptionManager() {
                     : 'free',
               limit:
                 data.subscription.priceId === proPriceId
-                  ? 100
+                  ? 50
                   : data.subscription.priceId === premiumPriceId
-                    ? 1000
-                    : 10
+                    ? 250
+                    : 3
             }
           }
         };
@@ -94,10 +94,10 @@ export function SubscriptionManager() {
             quantity: 0,
             cancelAtPeriodEnd: false,
             usage: 0,
-            limit: 10,
+            limit: 3,
             plan: {
               tier: 'free',
-              limit: 10
+              limit: 3
             }
           },
           usage: data.usage || 0
@@ -122,10 +122,10 @@ export function SubscriptionManager() {
           quantity: 0,
           cancelAtPeriodEnd: false,
           usage: 0,
-          limit: 10,
+          limit: 3,
           plan: {
             tier: 'free',
-            limit: 10
+            limit: 3
           }
         },
         usage: 0
@@ -172,24 +172,27 @@ export function SubscriptionManager() {
       case 'past_due':
         return 'bg-yellow-100 text-yellow-800';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-[var(--gray-100)] text-[var(--text-primary)]';
     }
   };
 
   return (
     <>
       <div>
-        <button onClick={() => setShowModal(true)} className="p-2 hover:bg-gray-100 rounded-full">
+        <button onClick={() => setShowModal(true)} className="rounded-full">
           <SettingsGearIcon />
         </button>
       </div>
 
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-[var(--card-background)] border border-[var(--card-border)] rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold">Account Settings</h2>
-              <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">
+              <h2 className="text-2xl font-bold text-[var(--text-primary)]">Account Settings</h2>
+              <button
+                onClick={() => setShowModal(false)}
+                className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              >
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     strokeLinecap="round"
@@ -202,8 +205,8 @@ export function SubscriptionManager() {
             </div>
 
             {/* User Profile Section */}
-            <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-              <h3 className="text-lg font-semibold mb-4">Profile</h3>
+            <div className="mb-6 p-4 bg-[var(--gray-50)] rounded-lg border border-[var(--card-border)]">
+              <h3 className="text-lg font-semibold mb-4 text-[var(--text-primary)]">Profile</h3>
               <div className="flex items-center space-x-4">
                 {session?.user?.image && (
                   <Image
@@ -215,8 +218,8 @@ export function SubscriptionManager() {
                   />
                 )}
                 <div>
-                  <p className="font-medium">{session?.user?.name}</p>
-                  <p className="text-sm text-gray-600">{session?.user?.email}</p>
+                  <p className="font-medium text-[var(--text-primary)]">{session?.user?.name}</p>
+                  <p className="text-sm text-[var(--text-secondary)]">{session?.user?.email}</p>
                 </div>
               </div>
             </div>
@@ -224,11 +227,13 @@ export function SubscriptionManager() {
             {subscription ? (
               <div className="space-y-6">
                 {/* Subscription Status */}
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <h3 className="text-lg font-semibold mb-4">Subscription Details</h3>
+                <div className="p-4 bg-[var(--gray-50)] rounded-lg border border-[var(--card-border)]">
+                  <h3 className="text-lg font-semibold mb-4 text-[var(--text-primary)]">
+                    Subscription Details
+                  </h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <p className="text-sm text-gray-600">Status</p>
+                      <p className="text-sm text-[var(--text-secondary)]">Status</p>
                       <span
                         className={`px-2 py-1 rounded-full text-sm font-medium inline-block mt-1 ${getStatusColor(subscription.subscription?.status)}`}
                       >
@@ -236,22 +241,22 @@ export function SubscriptionManager() {
                       </span>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600">Plan</p>
-                      <p className="font-medium">
+                      <p className="text-sm text-[var(--text-secondary)]">Plan</p>
+                      <p className="font-medium text-[var(--text-primary)]">
                         {PLAN_DISPLAY_NAME[subscription.subscription?.plan?.tier || 'free']}
                       </p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600">Started On</p>
-                      <p className="font-medium">
+                      <p className="text-sm text-[var(--text-secondary)]">Started On</p>
+                      <p className="font-medium text-[var(--text-primary)]">
                         {subscription.subscription?.created
                           ? new Date(subscription.subscription.created).toLocaleDateString()
                           : 'N/A'}
                       </p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600">Next Billing Date</p>
-                      <p className="font-medium">
+                      <p className="text-sm text-[var(--text-secondary)]">Next Billing Date</p>
+                      <p className="font-medium text-[var(--text-primary)]">
                         {subscription.subscription?.currentPeriodEnd
                           ? new Date(subscription.subscription.currentPeriodEnd).toLocaleDateString()
                           : 'N/A'}
@@ -261,17 +266,17 @@ export function SubscriptionManager() {
                 </div>
 
                 {/* Usage Section */}
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <h3 className="text-lg font-semibold mb-4">Usage</h3>
+                <div className="p-4 bg-[var(--gray-50)] rounded-lg border border-[var(--card-border)]">
+                  <h3 className="text-lg font-semibold mb-4 text-[var(--text-primary)]">Usage</h3>
                   <div className="space-y-4">
                     <div>
                       <div className="flex justify-between mb-2">
-                        <span className="text-sm text-gray-600">Monthly Scans</span>
-                        <span className="font-medium">
+                        <span className="text-sm text-[var(--text-secondary)]">Monthly Scans</span>
+                        <span className="font-medium text-[var(--text-primary)]">
                           {subscription.usage} / {subscription.subscription?.plan?.limit || 'N/A'}
                         </span>
                       </div>
-                      <div className="w-full h-2 bg-gray-200 rounded-full">
+                      <div className="w-full h-2 bg-[var(--gray-100)] rounded-full">
                         <div
                           className="h-2 bg-blue-600 rounded-full transition-all duration-300"
                           style={{
@@ -280,7 +285,7 @@ export function SubscriptionManager() {
                         />
                       </div>
                     </div>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm text-[var(--text-secondary)]">
                       Resets on{' '}
                       {new Date(subscription.subscription?.currentPeriodEnd || '').toLocaleDateString()}
                     </p>
