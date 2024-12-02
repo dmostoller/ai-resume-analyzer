@@ -6,6 +6,14 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '10mb'
     }
   },
+  images: {
+    domains: [
+      'lh3.googleusercontent.com', // Google
+      'avatars.githubusercontent.com', // GitHub
+      'platform-lookaside.fbsbx.com', // Facebook
+      'pbs.twimg.com' // Twitter
+    ]
+  },
   serverExternalPackages: ['pdf-parse', 'mammoth'],
   async headers() {
     return [
