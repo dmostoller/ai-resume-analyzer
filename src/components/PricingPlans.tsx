@@ -1,9 +1,10 @@
 import { SubscribeButton } from './SubscribeButton';
-import { SubscriptionTier } from '@/app/types/subscription';
+import { SubscriptionTier, SUBSCRIPTION_LIMITS } from '@/app/types/subscription';
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
+import { FeatureLineItem } from '@/components/shared/FeatureLineItem';
 
 const PricingPlanSkeleton = () => (
   <div className="border rounded-lg p-6">
@@ -42,11 +43,6 @@ export default function PricingPlans() {
       try {
         const response = await fetch('/api/subscription');
         const data = await response.json();
-
-        // Debug logs
-        // console.log('Subscription data:', data);
-        // console.log('Price ID from env:', process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_PRO);
-        // console.log('Price ID from sub:', data.subscription?.priceId);
 
         if (data.isSubscribed && data.subscription?.priceId) {
           // Check exact string match
@@ -156,7 +152,7 @@ export default function PricingPlans() {
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
                     </svg>
-                    3 scans per month
+                    {SUBSCRIPTION_LIMITS[SubscriptionTier.FREE]} scans per month
                   </li>
                   <li className="flex items-center text-[var(--text-secondary)]">
                     <svg
@@ -199,61 +195,13 @@ export default function PricingPlans() {
                   $10<span className="text-base font-normal text-[var(--text-secondary)]">/month</span>
                 </p>
                 <ul className="space-y-3 mb-6">
-                  <li className="flex items-center text-[var(--text-secondary)]">
-                    <svg
-                      className="w-5 h-5 mr-2 text-green-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    50 scans per month
-                  </li>
-                  <li className="flex items-center text-[var(--text-secondary)]">
-                    <svg
-                      className="w-5 h-5 mr-2 text-green-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    Advanced ATS optimization
-                  </li>
-                  <li className="flex items-center text-[var(--text-secondary)]">
-                    <svg
-                      className="w-5 h-5 mr-2 text-green-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    Job description matching
-                  </li>
-                  <li className="flex items-center text-[var(--text-secondary)]">
-                    <svg
-                      className="w-5 h-5 mr-2 text-green-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    Detailed feedback
-                  </li>
-                  <li className="flex items-center text-[var(--text-secondary)]">
-                    <svg
-                      className="w-5 h-5 mr-2 text-green-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    Priority support
-                  </li>
+                  <FeatureLineItem
+                    text={`${SUBSCRIPTION_LIMITS[SubscriptionTier.PRO]} resume scans per month`}
+                  />
+                  <FeatureLineItem text="Advanced ATS optimization" />
+                  <FeatureLineItem text="Job description matching" />
+                  <FeatureLineItem text="Detailed feedback" />
+                  <FeatureLineItem text="Priority support" />
                 </ul>
                 <SubscribeButton
                   tier={SubscriptionTier.PRO}
@@ -276,61 +224,13 @@ export default function PricingPlans() {
                   $25<span className="text-base font-normal text-[var(--text-secondary)]">/month</span>
                 </p>
                 <ul className="space-y-3 mb-6">
-                  <li className="flex items-center text-[var(--text-secondary)]">
-                    <svg
-                      className="w-5 h-5 mr-2 text-green-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    250 scans per month
-                  </li>
-                  <li className="flex items-center text-[var(--text-secondary)]">
-                    <svg
-                      className="w-5 h-5 mr-2 text-green-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    Advanced ATS optimization
-                  </li>
-                  <li className="flex items-center text-[var(--text-secondary)]">
-                    <svg
-                      className="w-5 h-5 mr-2 text-green-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    Job description matching
-                  </li>
-                  <li className="flex items-center text-[var(--text-secondary)]">
-                    <svg
-                      className="w-5 h-5 mr-2 text-green-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    Detailed feedback
-                  </li>
-                  <li className="flex items-center text-[var(--text-secondary)]">
-                    <svg
-                      className="w-5 h-5 mr-2 text-green-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                    Priority support
-                  </li>
+                  <FeatureLineItem
+                    text={`${SUBSCRIPTION_LIMITS[SubscriptionTier.PREMIUM]} resume scans per month`}
+                  />
+                  <FeatureLineItem text="Advanced ATS optimization" />
+                  <FeatureLineItem text="Job description matching" />
+                  <FeatureLineItem text="Detailed feedback" />
+                  <FeatureLineItem text="Priority support" />
                 </ul>
                 <SubscribeButton
                   tier={SubscriptionTier.PREMIUM}

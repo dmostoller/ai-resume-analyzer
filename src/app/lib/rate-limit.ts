@@ -29,7 +29,7 @@ export async function checkUserLimit(email: string | null) {
     quantity: 1
   });
 
-  return usage.quantity <= 25; // 25 scans per month limit
+  return usage.quantity <= 3; // 25 scans per month limit
 }
 
 export const rateLimit = new Ratelimit({

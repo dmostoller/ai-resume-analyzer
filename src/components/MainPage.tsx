@@ -10,27 +10,22 @@ import { SubscriptionManager } from '@/components/SubscriptionManager';
 import PricingPlans from './PricingPlans';
 import { AuthButton } from '@/components/AuthButton';
 import { signIn } from 'next-auth/react';
-import { HistoryModal } from '@/components/HistoryModal';
+import { useSubscription } from '@/app/hooks/useSubscription';
+import { SubscriptionTier } from '@/app/types/subscription';
+import { PlanTier } from '@/app/types/stripe';
+import Lottie from 'lottie-react';
+import aiAnimation from '../animations/ai-analysis.json';
+import aiIconAnimation from '../animations/ai-icon.json';
+import { UploadAnimation } from './UploadAnimation';
+import { SparklesIcon } from './icons/sparkes';
+
+const PLAN_DISPLAY_NAME: Record<PlanTier, string> = {
+  free: 'Free Plan',
+  pro: 'Pro Plan',
+  premium: 'Premium Plan'
+} as const;
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-
-type SubscriptionPlan = {
-  tier: 'free' | 'basic' | 'pro';
-  name: string;
-  limit: number;
-  price: number;
-};
-
-type SubscriptionDetails = {
-  isSubscribed: boolean;
-  subscription: {
-    status: 'active' | 'cancelled' | 'expired';
-    currentPeriodEnd?: string;
-    plan?: SubscriptionPlan;
-  };
-  usage: number;
-  limit: number;
-};
 
 type AnalysisResponse = {
   feedback: string;
@@ -78,47 +73,19 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
   const [showSuccessModal, setShowSuccessModal] = useState(searchParams.success === 'true');
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [jobDescription, setJobDescription] = useState<string>('');
-  const [subscription, setSubscription] = useState<SubscriptionDetails | null>(null);
-  const [lastScanScore, setLastScanScore] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
-
-  const fetchUserData = async () => {
-    if (!session?.user) {
-      setIsLoading(false);
-      return;
-    }
-
-    try {
-      // Fetch subscription data
-      const subResponse = await fetch('/api/subscription');
-      const subData = await subResponse.json();
-
-      // Fetch last scan data
-      const scanResponse = await fetch('/api/scans/latest');
-      const scanData = await scanResponse.json();
-
-      setSubscription({
-        isSubscribed: subData.isSubscribed,
-        subscription: subData.subscription,
-        usage: subData.usage,
-        limit: subData.subscription?.plan?.limit || 3
-      });
-
-      if (scanData?.overallScore) {
-        setLastScanScore(scanData.overallScore);
-      }
-    } catch (error) {
-      console.error('Error fetching user data:', error);
-      toast.error('Failed to load user data');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const { subscription, loading: subLoading, fetchSubscriptionDetails } = useSubscription();
+  const [usageCount, setUsageCount] = useState(subscription?.usage || 0);
+  const [currentController, setCurrentController] = useState<AbortController | null>(null);
 
   useEffect(() => {
-    fetchUserData();
+    if (session?.user) {
+      fetchSubscriptionDetails();
+    }
   }, [session]);
+
+  useEffect(() => {
+    setUsageCount(subscription?.usage || 0);
+  }, [subscription]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -156,6 +123,9 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
       return;
     }
 
+    const controller = new AbortController();
+    setCurrentController(controller);
+
     const formData = new FormData();
     formData.append('file', file);
     formData.append('jobDescription', jobDescription);
@@ -163,31 +133,17 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
     try {
       setLoading(true);
 
-      // Check subscription with error handling
-      const subStatus = await fetch('/api/subscription');
-
-      if (!subStatus.ok) {
-        console.error('Subscription check failed:', await subStatus.text());
-        toast.error('Failed to verify subscription status');
-        return;
-      }
-
-      const subData = await subStatus.json();
-
-      if (subData.usage >= subData.subscription.limit) {
-        if (subData.subscription.tier === 'free') {
-          // toast.error('Free tier limit reached. Please upgrade for more scans.');
-          setShowSubscriptionModal(true);
-        } else {
-          toast.error('Monthly scan limit reached. Please upgrade your plan.');
-        }
+      // console.log('Usage:', subscription?.usage, 'Limit:', subscription?.subscription?.plan.limit);
+      if ((subscription?.usage ?? 0) >= (subscription?.subscription?.plan.limit ?? 0)) {
+        setShowSubscriptionModal(true);
         return;
       }
 
       // Continue with file analysis
       const res = await fetch('/api/analyze', {
         method: 'POST',
-        body: formData
+        body: formData,
+        signal: controller.signal
       });
 
       if (!res.ok) {
@@ -206,7 +162,8 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
 
       try {
         const usageResponse = await fetch('/api/increment-usage', {
-          method: 'POST'
+          method: 'POST',
+          signal: controller.signal
         });
 
         if (!usageResponse.ok) {
@@ -214,9 +171,12 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
         }
 
         const usageData = await usageResponse.json();
+        setUsageCount((prevCount) => prevCount + 1);
         console.log('Updated usage:', usageData);
       } catch (error) {
-        console.error('Error incrementing usage:', error);
+        if ((error as Error).name !== 'AbortError') {
+          console.error('Error incrementing usage:', error);
+        }
       }
 
       // Save scan to history
@@ -233,10 +193,18 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
             overallScore: data.overallScore,
             jobDescription: jobDescription,
             fileName: file.name
-          })
+          }),
+          signal: controller.signal
         });
       } catch (error) {
-        console.error('Error saving scan history:', error);
+        if ((error as Error).name !== 'AbortError') {
+          console.error('Error saving scan history:', error);
+        } else {
+          // Clean up on abort
+          setLoading(false);
+          setCurrentController(null);
+          return; // Exit early if aborted
+        }
       }
 
       setResponse({
@@ -250,33 +218,53 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
         atsKeywords: data.atsKeywords,
         overallScore: data.overallScore
       });
-
       toast.success('Analysis complete!');
     } catch (error) {
-      console.error('Upload failed:', error);
-      toast.error('Something went wrong. Please try again.');
+      if ((error as Error).name === 'AbortError') {
+        toast.error('Upload cancelled');
+      } else {
+        console.error('Upload failed:', error);
+        toast.error('Something went wrong. Please try again.');
+      }
     } finally {
       setLoading(false);
+      setCurrentController(null);
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (currentController) {
+        currentController.abort();
+      }
+    };
+  }, [currentController]);
+
   return (
     <div className="min-h-screen bg-[var(--background)] p-6">
-      <div className="flex justify-between items-center mb-4">
-        <button
-          onClick={() => setShowPricingModal(true)}
-          className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-        >
-          Upgrade & Unlock Pro Features
-        </button>
-        <div className="flex items-center">
-          <AuthButton />
-          {session && <SubscriptionManager />}
-        </div>
-      </div>
       <PricingModal isOpen={showPricingModal} onClose={() => setShowPricingModal(false)} />
+      <header className="bg-gradient-to-r from-indigo-900 via-purple-900 to-blue-900 text-white pb-16 pt-4 px-4">
+        <div className="flex justify-between items-center mb-4">
+          <button
+            onClick={() => setShowPricingModal(true)}
+            className="group inline-flex items-center border border-transparent text-base font-medium 
+          rounded-full shadow-sm text-white bg-gradient-to-r from-blue-600 to-indigo-600 
+          hover:from-blue-700 hover:to-indigo-700 px-0 py-0 transition-all duration-300 ease-in-out"
+          >
+            <SparklesIcon />
+            <span
+              className="w-0 whitespace-nowrap overflow-hidden transition-all duration-500 ease-in-out 
+            group-hover:w-[260px] opacity-0 group-hover:opacity-100"
+            >
+              <span>Upgrade & Unlock Pro Features</span>
+            </span>
+          </button>
 
-      <header className="bg-gradient-to-r from-indigo-900 via-purple-900 to-blue-900 text-white py-16 px-8">
+          <div className="flex items-center">
+            <AuthButton />
+            {session && <SubscriptionManager />}
+          </div>
+        </div>
         <div className="max-w-7xl mx-auto">
           {session?.user ? (
             <div className="space-y-8">
@@ -290,21 +278,27 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
                 </p>
               </div>
 
-              {/* Quick Stats */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-8">
-                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6">
-                  <p className="text-blue-200 text-sm">Monthly Scans Used</p>
-                  <p className="text-3xl font-bold">
-                    {subscription?.usage || 0}/{subscription?.limit || 3}
+              {/* Simplified Quick Stats */}
+              <div className="flex justify-center mt-8">
+                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 w-full max-w-3xl text-center shadow-lg">
+                  {/* Plan Name */}
+                  <p className="text-blue-200 text-sm mb-2">Plan</p>
+                  <p className="text-2xl font-bold text-white mb-6">
+                    {PLAN_DISPLAY_NAME[subscription?.subscription?.plan?.tier || 'free']}
                   </p>
-                </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6">
-                  <p className="text-blue-200 text-sm">Latest Score</p>
-                  <p className="text-3xl font-bold">{lastScanScore || '--'}</p>
-                </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6">
-                  <p className="text-blue-200 text-sm">Plan</p>
-                  <p className="text-3xl font-bold">{subscription?.plan || 'Free'}</p>
+
+                  {/* Progress Bar */}
+                  <div className="w-full bg-white/20 rounded-full h-4 mb-4">
+                    <div
+                      className="bg-gradient-to-r from-purple-600 to-indigo-600 h-4 rounded-full"
+                      style={{
+                        width: `${(usageCount / (subscription?.subscription?.plan.limit || 3)) * 100}%`
+                      }}
+                    ></div>
+                  </div>
+                  <p className="text-blue-200 text-sm">
+                    {usageCount}/{subscription?.subscription?.plan.limit || 3} Monthly Scans Used
+                  </p>
                 </div>
               </div>
 
@@ -312,57 +306,46 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
                 <button
                   onClick={() => document.getElementById('file-upload')?.click()}
-                  className="inline-flex items-center px-6 py-4 text-lg font-semibold rounded-full shadow-lg 
-                    bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 
-                    focus:ring-4 focus:ring-indigo-400 w-full sm:w-auto justify-center"
+                  className="inline-flex items-center px-4 py-0 text-lg font-semibold rounded-full shadow-lg 
+                  bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 
+                  focus:ring-2 focus:ring-indigo-400 w-full sm:w-auto justify-center"
                 >
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
+                  <Lottie animationData={aiIconAnimation} loop={true} className="w-12 pr-2 py-2" />
                   New Resume Scan
-                </button>
-
-                <button
-                  onClick={() => setShowHistoryModal(true)}
-                  className="inline-flex items-center px-6 py-4 text-lg font-semibold rounded-full
-                bg-white/20 hover:bg-white/30 transition-colors w-full sm:w-auto justify-center"
-                >
-                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                    />
-                  </svg>
-                  View History
                 </button>
               </div>
             </div>
           ) : (
             // Existing non-logged-in hero content
-            <div className="text-center">
-              <h1 className="text-4xl sm:text-5xl font-extrabold leading-tight mb-4">
-                Analyze Your Resume with <span className="text-blue-400">AI-Powered Insights</span>
-              </h1>
-              <p className="text-lg sm:text-xl font-medium mb-8">
-                Optimize your resume, get ATS-ready, and land your dream job faster.
-              </p>
-              <button
-                onClick={() => signIn()}
-                className="inline-flex items-center px-6 py-4 text-lg font-semibold rounded-full shadow-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 focus:ring-4 focus:ring-indigo-400"
-              >
-                Get Started
-              </button>
+            <div className="flex flex-col lg:flex-row items-center justify-between gap-8 lg:gap-16 py-16 px-6 lg:px-16 bg-gradient-to-r from-indigo-900 via-purple-900 to-blue-900">
+              {/* Left Section: Text Content */}
+              <div className="text-center lg:text-left max-w-lg">
+                <h1 className="text-4xl lg:text-5xl font-extrabold leading-tight text-white mb-6">
+                  Analyze Your Resume with <span className="text-blue-400">AI-Powered Insights</span>
+                </h1>
+                <p className="text-lg lg:text-xl font-medium text-blue-200 mb-8">
+                  Optimize your resume, get ATS-ready, and land your dream job faster.
+                </p>
+                <div className="relative inline-block">
+                  <button
+                    onClick={() => signIn()}
+                    className="relative z-10 inline-flex items-center px-8 py-4 text-lg font-semibold rounded-full shadow-lg 
+            bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 focus:ring-2 focus:ring-indigo-400 text-white"
+                  >
+                    Get Started
+                  </button>
+                  <span className="absolute -inset-0.5 rounded-full bg-[radial-gradient(circle_at_center,theme(colors.purple.500),theme(colors.pink.500)_50%,theme(colors.indigo.500)_100%)] animate-shimmer"></span>
+                </div>
+              </div>
+
+              {/* Right Section: Lottie Animation */}
+              <div className="flex-shrink-0">
+                <Lottie animationData={aiAnimation} loop={true} className="w-[300px] lg:w-[400px] mx-auto" />
+              </div>
             </div>
           )}
         </div>
       </header>
-      {/* <header className="mb-8 text-center">
-        <h1 className="text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600">
-          AI Resume Analyzer
-        </h1>
-      </header> */}
       <SubscriptionModal
         isOpen={showSubscriptionModal}
         onClose={() => setShowSubscriptionModal(false)}
@@ -370,6 +353,7 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
           setShowSubscriptionModal(false);
           setShowPricingModal(true);
         }}
+        currentTier={(subscription?.subscription?.plan?.tier as SubscriptionTier) || SubscriptionTier.FREE}
       />
       {showSuccessModal && (
         <SubscriptionSuccessModal
@@ -379,9 +363,8 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
           }}
         />
       )}
-
       <section className="py-12 bg-[var(--background)]">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-3 gap-8">
           {[
             {
               title: 'ATS Optimization',
@@ -410,7 +393,6 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
           ))}
         </div>
       </section>
-
       {!trialExpired && (
         <>
           <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -745,7 +727,13 @@ export function MainPage({ searchParams }: { searchParams: { success?: string; c
           </div>
         </>
       )}
-      <HistoryModal isOpen={showHistoryModal} onClose={() => setShowHistoryModal(false)} />
+      <UploadAnimation
+        isOpen={loading}
+        onClose={() => {
+          currentController?.abort();
+          setLoading(false);
+        }}
+      />
     </div>
   );
 }

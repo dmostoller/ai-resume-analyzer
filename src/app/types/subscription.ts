@@ -12,8 +12,8 @@ export const SUBSCRIPTION_PRICES = {
 };
 export const SUBSCRIPTION_LIMITS = {
   [SubscriptionTier.FREE]: 3,
-  [SubscriptionTier.PRO]: 25,
-  [SubscriptionTier.PREMIUM]: 100
+  [SubscriptionTier.PRO]: 100,
+  [SubscriptionTier.PREMIUM]: 500
 };
 
 export const STRIPE_PRICE_TO_TIER = {

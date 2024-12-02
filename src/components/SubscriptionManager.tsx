@@ -5,21 +5,10 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { SettingsGearIcon } from './icons/gear';
 import { toast } from 'react-hot-toast';
-import { Subscription } from '@/app/types/stripe';
 import Image from 'next/image';
 import { PlanTier } from '@/app/types/stripe';
+import { useSubscription } from '@/app/hooks/useSubscription';
 
-// SubscriptionManager.tsx
-interface SubscriptionDetails {
-  isSubscribed: boolean;
-  subscription?: Subscription & {
-    plan?: {
-      tier: PlanTier | 'free';
-      limit: number;
-    };
-  };
-  usage: number;
-}
 const PLAN_DISPLAY_NAME: Record<PlanTier, string> = {
   free: 'Free Plan',
   pro: 'Pro Plan',
@@ -27,9 +16,10 @@ const PLAN_DISPLAY_NAME: Record<PlanTier, string> = {
 } as const;
 
 export function SubscriptionManager() {
-  const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [subscription, setSubscription] = useState<SubscriptionDetails | null>(null);
+  const { subscription, loading, fetchSubscriptionDetails } = useSubscription();
+  const [buttonLoading, setButtonLoading] = useState(false);
+
   const { data: session } = useSession();
 
   useEffect(() => {
@@ -38,104 +28,9 @@ export function SubscriptionManager() {
     }
   }, [showModal]);
 
-  const fetchSubscriptionDetails = async () => {
-    try {
-      const response = await fetch('/api/subscription');
-      const data = await response.json();
-
-      if (data.isSubscribed && data.subscription?.priceId) {
-        // Compare with environment price IDs
-        const proPriceId = process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_PRO;
-        const premiumPriceId = process.env.NEXT_PUBLIC_STRIPE_PRICE_ID_PREMIUM;
-
-        // Enhance subscription data with plan tier
-        const enhancedData = {
-          ...data,
-          subscription: {
-            id: '',
-            userId: '',
-            status: '',
-            priceId: '',
-            created: 0,
-            currentPeriodStart: 0,
-            currentPeriodEnd: 0,
-            ...data.subscription,
-            plan: {
-              tier:
-                data.subscription.priceId === proPriceId
-                  ? 'pro'
-                  : data.subscription.priceId === premiumPriceId
-                    ? 'premium'
-                    : 'free',
-              limit:
-                data.subscription.priceId === proPriceId
-                  ? 50
-                  : data.subscription.priceId === premiumPriceId
-                    ? 250
-                    : 3
-            }
-          }
-        };
-
-        setSubscription(enhancedData);
-      } else {
-        // Set free tier data if no subscription
-        setSubscription({
-          isSubscribed: false,
-          subscription: {
-            id: '',
-            userId: '',
-            status: '',
-            priceId: '',
-            created: '',
-            currentPeriodStart: '',
-            currentPeriodEnd: '',
-            tier: 'free',
-            quantity: 0,
-            cancelAtPeriodEnd: false,
-            usage: 0,
-            limit: 3,
-            plan: {
-              tier: 'free',
-              limit: 3
-            }
-          },
-          usage: data.usage || 0
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching subscription:', error);
-      toast.error('Failed to load subscription details');
-
-      // Set default free tier on error
-      setSubscription({
-        isSubscribed: false,
-        subscription: {
-          id: '',
-          userId: '',
-          status: '',
-          priceId: '',
-          created: '',
-          currentPeriodStart: '',
-          currentPeriodEnd: '',
-          tier: 'free',
-          quantity: 0,
-          cancelAtPeriodEnd: false,
-          usage: 0,
-          limit: 3,
-          plan: {
-            tier: 'free',
-            limit: 3
-          }
-        },
-        usage: 0
-      });
-    }
-  };
-
   const handlePortal = async () => {
     try {
-      setLoading(true);
+      setButtonLoading(true);
       const response = await fetch('/api/create-portal-session', {
         method: 'POST',
         headers: {
@@ -159,7 +54,7 @@ export function SubscriptionManager() {
       console.error('Portal error:', error);
       toast.error('Failed to open subscription portal');
     } finally {
-      setLoading(false);
+      setButtonLoading(false);
     }
   };
 
@@ -179,7 +74,12 @@ export function SubscriptionManager() {
   return (
     <>
       <div>
-        <button onClick={() => setShowModal(true)} className="rounded-full">
+        <button
+          onClick={() => setShowModal(true)}
+          className="text-base font-medium 
+          rounded-full shadow-sm text-white bg-gradient-to-r from-blue-600 to-indigo-600 
+          hover:from-blue-700 hover:to-indigo-700 px-0 py-0 transition-all duration-300 ease-in-out"
+        >
           <SettingsGearIcon />
         </button>
       </div>
@@ -294,11 +194,11 @@ export function SubscriptionManager() {
 
                 <button
                   onClick={handlePortal}
-                  disabled={loading}
+                  disabled={buttonLoading}
                   className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 
                     transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {loading ? 'Loading...' : 'Manage Billing'}
+                  {buttonLoading ? 'Loading...' : 'Manage Billing'}
                 </button>
               </div>
             ) : (
